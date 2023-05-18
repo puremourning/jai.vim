@@ -65,12 +65,25 @@ function! s:GetJaiMakeprg()
     let b:jai = s:FindJaiCompiler()
     let b:jai_args =
           \ [ '-no_color' ] + s:FindJaiModules()
-
     return b:jai . ' ' . join( b:jai_args + s:FindJaiEntrypoint(), ' ' )
 endfunction
 
 function! UpdateJaiMakeprg()
-    let &l:makeprg=s:GetJaiMakeprg()
+    let makeprg = s:GetJaiMakeprg()
+
+    let no_output = '{'
+          \ .. 'c :: #import "Compiler";'
+          \ .. 'c.set_build_options_dc( .{ do_output=false } );'
+          \ .. '}'
+
+    let b:neomake_jai_enabled_makers = [ 'jai' ]
+    let b:neomake_jai_jai_maker = {
+          \ 'exe': b:jai,
+          \ 'args': b:jai_args + [ '-run', no_output ] + s:FindJaiEntrypoint(),
+          \ 'append_file': 0,
+          \ }
+
+    let &l:makeprg=makeprg
 endfunction
 
 call UpdateJaiMakeprg()
