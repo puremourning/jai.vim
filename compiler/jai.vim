@@ -8,72 +8,78 @@ if exists("current_compiler")
 endif
 let current_compiler="jai"
 
-function! FindJaiEntrypoint(filename)
-	let buildfile = 'first.jai'
-	let buildfile2 = 'build.jai'
-	if exists("g:jai_entrypoint")
-		return g:jai_entrypoint
-	else 
-		if filereadable(buildfile)
-			return buildfile
-		else
-            if filereadable(buildfile2)
-                return buildfile2
-            else 
-                return a:filename
-            endif
-		endif
-	endif
+let s:cpo_save = &cpo
+set cpo&
+
+function! s:FindJaiEntrypoint()
+    let start = expand( '%:p:h' )
+    let buildfiles = [ 'first.jai', 'build.jai' ]
+
+    if exists( 'b:jai_entrypoint' )
+        return [ b:jai_entrypoint ]
+    elseif exists("g:jai_entrypoint")
+        return [ g:jai_entrypoint ]
+    endif
+
+    for buildfile in buildfiles
+        let found = findfile(buildfile, start .. ';')
+        if ! empty( found )
+            " use abs path to avoid wierdness of user changes directory
+            return [ fnamemodify( found, ':p' ) ]
+        endif
+    endfor
+
+    return [ expand( '%' ) ]
 endfunction
 
-function! FindJaiCompiler()
-	if exists("g:jai_compiler")
-		return g:jai_compiler
-	else
-		if has("win64") || has("win32") || has("win16")
-			return "jai.exe"
-		else
-			return "jai-linux"
-		endif
-	endif
+function! s:FindJaiCompiler()
+    if exists("g:jai_compiler")
+        return g:jai_compiler
+    elseif has("win64") || has("win32") || has("win16")
+        return "jai.exe"
+    elseif executable( 'jai' )
+        return 'jai'
+    else
+        return "jai-linux"
+    endif
 endfunction
 
-function! FindJaiModules()
-	if exists("g:jai_local_modules")
-		return " -import_dir " . g:jai_local_modules
-	else 
-        let modules_dir = getcwd() . '/modules'
-		if isdirectory(modules_dir)
-			return " -import_dir " . modules_dir
-		else
-            let local_modules_dir = 'Local_Modules'
-            if isdirectory(local_modules_dir)
-                return " -import_dir " . local_modules_dir
-            else
-                return ""
-            endif
-		endif
-	endif
+function! s:FindJaiModules()
+    if exists("g:jai_local_modules")
+        return [ '-import_dir', g:jai_local_modules ]
+    endif
+
+    let start = expand( '%:p:h' )
+    for modules_dir_candidate in [ 'local_modules', 'modules' ]
+      let modules_dir = finddir( modules_dir_candidate, start .. ';' )
+      if !empty( modules_dir )
+        " Use abs path to avoid wierdness and having to make modules_dir
+        " relative to start (although this is easy, there's no point)
+        return [ '-import_dir', fnamemodify( modules_dir, ':p' ) ]
+      endif
+    endfor
+    return []
 endfunction
 
-function! GetJaiMakeprg()
-    return FindJaiCompiler() . " -no_color -quiet " . FindJaiEntrypoint(expand('%')) . FindJaiModules()
+function! s:GetJaiMakeprg()
+    let b:jai = s:FindJaiCompiler()
+    let b:jai_args =
+          \ [ '-no_color' ] + s:FindJaiModules()
+
+    return b:jai . ' ' . join( b:jai_args + s:FindJaiEntrypoint(), ' ' )
 endfunction
 
 function! UpdateJaiMakeprg()
-    let &l:makeprg=GetJaiMakeprg()
+    let &l:makeprg=s:GetJaiMakeprg()
 endfunction
 
 call UpdateJaiMakeprg()
-
-let s:cpo_save = &cpo
-set cpo-=C
 
 CompilerSet errorformat=
 	\%f:%l\\,%c:\ Error:\ %m,
 	\%f:%l\\,%c:\ %m,
 	\%m\ (%f:%l),
-execute "CompilerSet makeprg=" . escape(GetJaiMakeprg(), ' ')
+execute 'CompilerSet makeprg=' . escape(s:GetJaiMakeprg(), ' ')
 
 let &cpo = s:cpo_save
 unlet s:cpo_save
