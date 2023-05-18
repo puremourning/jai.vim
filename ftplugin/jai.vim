@@ -58,3 +58,4 @@ function! s:Jai_jump(mode, motion, flags, count) abort
   endwhile
 endfun
 
+compiler jai
