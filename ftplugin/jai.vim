@@ -26,21 +26,19 @@ if !exists('g:no_plugin_maps') && !exists('g:no_jai_maps')
     execute "xnoremap <silent> <buffer> [m :<C-U>call <SID>Jai_jump('x', '".b:prev."', 'Wb', v:count1)<cr>"
 endif
 
-if !exists('*<SID>Jai_jump')
-  fun! <SID>Jai_jump(mode, motion, flags, count)
-      if a:mode == 'x'
-          normal! gv
-      endif
+function! s:Jai_jump(mode, motion, flags, count) abort
+  if a:mode == 'x'
+      normal! gv
+  endif
 
-      mark '
+  mark '
 
-      let cnt = a:count
-      while cnt > 0
-          call search(a:motion, a:flags)
-          let cnt = cnt - 1
-      endwhile
-  endfun
-endif
+  let cnt = a:count
+  while cnt > 0
+      call search(a:motion, a:flags)
+      let cnt = cnt - 1
+  endwhile
+endfun
 
 " Script for filetype switching to undo the local stuff we may have changed
 let b:undo_ftplugin = 'silent! nunmap <buffer> [['
