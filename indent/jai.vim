@@ -104,12 +104,17 @@ endfunction
 function! s:EndsAStatementMaybe( l, lnum )
     let l = substitute( a:l, '//.*$', '', '' )
 
-    if l =~ '^\s*$' || l =~ '[;}{]\s*$'
+    if l =~ '^\s*$'
+        return 1
+    elseif l =~ '[}{]\s*$'
+        return 1
+    elseif l =~ ';'
+        " FIXME: any semicolon will do... is probably not right
         return 1
     elseif l =~ ',\s*$'
         call cursor( a:lnum, len( l ) )
         let is_in_func = searchpair( '(', '', ')', 'bW', s:skip ) > 0
-        echom "EndsAStatementMaybe: " l " give " is_in_func
+        "echom "EndsAStatementMaybe: " l " give " is_in_func
         return !is_in_func
     else
         return 0
@@ -128,7 +133,7 @@ function! GetJaiIndent(lnum)
     let line = getline(a:lnum)
 
     let ind = indent(prev)
-    echom "Starting with" ind
+    "echom "Starting with" ind
 
     let parlnum = s:SearchParensPair()
     if parlnum > 0
@@ -147,11 +152,11 @@ function! GetJaiIndent(lnum)
             " indent
             if closing_paren
                 " we're closing it; use the indent of the opening line
-                echom "use indent of openeing line"
+                "echom "use indent of openeing line"
                 return indent(parlnum)
             else
                 " use indent of opening line + 1 sw
-                echom "use indent of openeing line +1"
+                "echom "use indent of openeing line +1"
                 return indent(parlnum) + s:indent_value( 'default' )
             endif
         else
@@ -164,11 +169,11 @@ function! GetJaiIndent(lnum)
             " x :: inline b( test : Foo,
             if closing_paren
                 " This lines it up with the bracket (strange ... -1 )
-                echom "line up with bracket"
+                "echom "line up with bracket"
                 return parcol - 1
             else
                 " lines it up with the first char of the stuff
-                echom "line up with first cahr"
+                "echom "line up with first cahr"
                 return matchend(getline(parlnum), '[([]\s*', parcol - 1)
             endif
         endif
@@ -197,7 +202,7 @@ function! GetJaiIndent(lnum)
             let bl = getline( blnum )
             " if it's empty, or looks like the end of a statement
             if s:EndsAStatementMaybe( bl, blnum )
-                echom 'line' blnum 'ends a statement, probably. using mind ' mindent
+                "echom 'line' blnum 'ends a statement, probably. using mind ' mindent
                 break
             endif
 
@@ -243,27 +248,27 @@ function! GetJaiIndent(lnum)
 
     if line =~ '^\s*}'
         let ind -= s:indent_value( 'default' )
-        echom "Closing, so using" ind
+        "echom "Closing, so using" ind
     elseif line =~ '^\s*]'
         call cursor( a:lnum, col - 1 )
         let starting = searchpair( '[', '', ']', 'bW', s:skip )
         if starting > 0
-            echom "Matching [ at" starting ", so using" indent(starting)
+            "echom "Matching [ at" starting ", so using" indent(starting)
             return indent( starting )
         endif
 
         let ind -= s:indent_value( 'default' )
-        echom "Closing, so using" ind
+        "echom "Closing, so using" ind
     elseif line =~ '^\s*)'
         call cursor( a:lnum, col - 1 )
         let starting = searchpair( '(', '', ')', 'bW', s:skip )
         if starting > 0
-            echom "Matching ( at" starting ", so using" indent(starting)
+            "echom "Matching ( at" starting ", so using" indent(starting)
             return indent( starting )
         endif
 
         let ind -= s:indent_value( 'default' )
-        echom "Closing, so using" ind
+        "echom "Closing, so using" ind
     elseif !s:EndsAStatementMaybe( prevline, prev )
         " Maybe a hangling indent
         let ind += s:indent_value( 'default' )
