@@ -125,27 +125,27 @@ function! s:SearchParensPair()
 endfunction
 
 function! s:LooksLikeCaseLabel( l )
-    return a:l =~ '^\s*case.*;\(\s*{\)\?\s*$'
+    return a:l =~# '\m^\s*case.*;\(\s*{\)\?\s*$'
 endfunction
 
 function! s:EndsAStatementMaybe( l, lnum )
     let l = substitute( a:l, '//.*$', '', '' )
 
-    if l =~ '^\s*$'
+    if l =~# '\m^\s*$'
         return 1
-    elseif l =~ '{\s*$'
+    elseif l =~# '\m{\s*$'
         return 1
     elseif s:ClosesBlock( l )
         return 1
-    elseif l =~ ';'
+    elseif l =~# '\m;'
         " FIXME: any semicolon will do... is probably not right
         return 1
-    elseif l =~ ',\s*$'
+    elseif l =~# '\m,\s*$'
         call cursor( a:lnum, len( l ) )
         let is_in_func = searchpair( '(', '', ')', 'bW', function( 's:Skip' )  ) > 0
         "echom "EndsAStatementMaybe: " l " give " is_in_func
         return !is_in_func
-    elseif l =~ '^\s*#scope'
+    elseif l =~# '\m^\s*#scope'
         return 1
     else
         return 0
@@ -153,7 +153,7 @@ function! s:EndsAStatementMaybe( l, lnum )
 endfunction
 
 function! s:ClosesBlock( l )
-    return a:l =~ '}\(\s*;\)\?\s*\(@.*\)\?\s*$'
+    return a:l =~# '\m}\(\s*;\)\?\s*\(@.*\)\?\s*$'
 endfunction
 
 function! GetJaiIndent(lnum)
@@ -164,12 +164,22 @@ function! GetJaiIndent(lnum)
     endif
 
     let col = col( '.' )
+    let inserted_col = col - 1
     let prevline = getline(prev)
     let line = getline(a:lnum)
 
     let ind = indent(prev)
 
     "echom "Starting with" ind
+
+    if inserted_col > 1 && line[ inserted_col - 1 ] ==# ';'
+        " we just entered a ; (probably). Only re-indent if this looks like a
+        " case label
+        if !s:LooksLikeCaseLabel( line[ 0: inserted_col - 1 ] )
+            " it doesn't look one, so just return the current indent
+            return indent( line )
+        endif
+    endif
 
     " When a character has just been inserted and indent is triggered, the
     " cursor (col) is just _after_ the newly inserted character. (unless
@@ -191,8 +201,8 @@ function! GetJaiIndent(lnum)
     if parlnum > 0
         " We're in some kind of open parent, braces, or brackets
         let parcol = col('.')
-        let closing_paren = match(getline(a:lnum), '^\s*[])]') != -1
-        if match(getline(parlnum), '[([]\s*$', parcol - 1) != -1
+        let closing_paren = match(getline(a:lnum), '\m^\s*[])]') != -1
+        if match(getline(parlnum), '\m[([]\s*$', parcol - 1) != -1
             " The opening line opened the dict/list/tuple, without
             " any additional stuff, e.g.:
             " x := .{
@@ -226,7 +236,7 @@ function! GetJaiIndent(lnum)
             else
                 " lines it up with the first char of the stuff
                 "echom "line up with first cahr"
-                return matchend(getline(parlnum), '[([]\s*', parcol - 1)
+                return matchend(getline(parlnum), '\m[([]\s*', parcol - 1)
             endif
         endif
     endif
@@ -288,7 +298,7 @@ function! GetJaiIndent(lnum)
         endwhile
 
         " " now check for case labels!
-        if !s:LooksLikeCaseLabel( line ) && !s:ClosesBlock( line )
+        if !s:LooksLikeCaseLabel( line ) && line !~# '\m^\s*}'
             let clnum = a:lnum - 1
             while clnum > blnum
                 let l = getline( clnum )
@@ -301,7 +311,7 @@ function! GetJaiIndent(lnum)
                 if s:LooksLikeCaseLabel( l )
                     let mindent = indent( clnum )
                     break
-                elseif s:ClosesBlock( l )
+                elseif l =~# '\m^\s*}'
                     " Close of a an intervening block, so ignore it
                     break
                 endif
@@ -309,7 +319,7 @@ function! GetJaiIndent(lnum)
             endwhile
         endif
 
-        if !s:ClosesBlock( line )
+        if line !~# '^\s*}'
             let ind = mindent + s:indent_value( 'default' )
         else
             let ind = mindent
@@ -332,8 +342,8 @@ function! GetJaiIndent(lnum)
     "
     " matchend returns index of char after the match, so we want matchend-1, but
     " we also want a 1-based column, so matchend-1+1 = matchend.
-    let bracket_col = matchend( line, '^\s*]' )
-    let paren_col = matchend( line, '^\s*)' )
+    let bracket_col = matchend( line, '\m^\s*]' )
+    let paren_col = matchend( line, '\m^\s*)' )
 
     if bracket_col >= 0
         call cursor( a:lnum, bracket_col )
