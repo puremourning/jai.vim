@@ -26,11 +26,23 @@ function! s:indent_value(option)
     return Value
 endfunction
 
-let s:skip = 'synIDattr(synID(line("."), col("."), 0), "name") =~? "string"'
+let s:skip_hlgroup = [ 'string', 'comment' ]
+
+function! s:Skip()
+    let syn = synIDattr( synID(line( '.' ), col( '.' ), 0), 'name' )
+    for cand in s:skip_hlgroup
+        if syn =~? cand
+            return 1
+        endif
+    endfor
+    return 0
+endfunction
+
+
 
 " TODO: This indent file is extremely slow, sorry. It does some dumb stuff
 " mainly due to the correct thing not being all that obvious, but mostly due to
-" my laziness;
+" my laziness and hacking approach;
 "
 " The indent style for this code is Ben's style. that is:
 "
@@ -41,14 +53,14 @@ let s:skip = 'synIDattr(synID(line("."), col("."), 0), "name") =~? "string"'
 " call_function(
 "   indent here,
 "   next arg
-" )
+" );
 "
 " call_function(
 "   indent here,
-"   next arg )
+"   next arg );
 "
 " call_function( indent here,
-"                next arg )
+"                next arg );
 "
 " if x == {
 "   case foo; {
@@ -56,7 +68,7 @@ let s:skip = 'synIDattr(synID(line("."), col("."), 0), "name") =~? "string"'
 "   }
 "   case bar:
 "     indent here too;
-"     #throgh
+"     #through
 " }
 "
 " define_function :: ( para: P ) {
@@ -66,8 +78,23 @@ let s:skip = 'synIDattr(synID(line("."), col("."), 0), "name") =~? "string"'
 " define_function :: ( para: P,
 "                      gone: G ) {
 "    stuff here..., not  ~here
+" } @note
+"
+" #scope_file
+"
+" foo :: bar;
+" S :: struct {
+"    x: string;
+"    y: float;   @"Note";
 " }
 "
+" // the following is a bit questionable, and doesn't work perfectly,
+" // particularly for quirks like how heredocs don't end in a semicolon
+"
+" thing_that
+"   doesn't look like a complete
+"       statement;
+" next thing;
 
 function! s:SearchParensPair()
 
@@ -76,12 +103,12 @@ function! s:SearchParensPair()
 
     " Search for parentheses
     call cursor(line, col)
-    let parlnum = searchpair('(', '', ')', 'bW', s:skip)
+    let parlnum = searchpair('(', '', ')', 'bW', function( 's:Skip' ) )
     let parcol = col('.')
 
     " Search for brackets
     call cursor(line, col)
-    let par2lnum = searchpair('\[', '', '\]', 'bW', s:skip)
+    let par2lnum = searchpair('\[', '', '\]', 'bW', function( 's:Skip' ) )
     let par2col = col('.')
 
     " Get the closest match
@@ -98,7 +125,7 @@ function! s:SearchParensPair()
 endfunction
 
 function! s:LooksLikeCaseLabel( l )
-    return a:l =~ 'case\s*.*;\s*$'
+    return a:l =~ '^\s*case.*;\(\s*{\)\?\s*$'
 endfunction
 
 function! s:EndsAStatementMaybe( l, lnum )
@@ -106,19 +133,27 @@ function! s:EndsAStatementMaybe( l, lnum )
 
     if l =~ '^\s*$'
         return 1
-    elseif l =~ '[}{]\s*$'
+    elseif l =~ '{\s*$'
+        return 1
+    elseif s:ClosesBlock( l )
         return 1
     elseif l =~ ';'
         " FIXME: any semicolon will do... is probably not right
         return 1
     elseif l =~ ',\s*$'
         call cursor( a:lnum, len( l ) )
-        let is_in_func = searchpair( '(', '', ')', 'bW', s:skip ) > 0
+        let is_in_func = searchpair( '(', '', ')', 'bW', function( 's:Skip' )  ) > 0
         "echom "EndsAStatementMaybe: " l " give " is_in_func
         return !is_in_func
+    elseif l =~ '^\s*#scope'
+        return 1
     else
         return 0
     endif
+endfunction
+
+function! s:ClosesBlock( l )
+    return a:l =~ '}\(\s*;\)\?\s*\(@.*\)\?\s*$'
 endfunction
 
 function! GetJaiIndent(lnum)
@@ -133,7 +168,24 @@ function! GetJaiIndent(lnum)
     let line = getline(a:lnum)
 
     let ind = indent(prev)
+
     "echom "Starting with" ind
+
+    " When a character has just been inserted and indent is triggered, the
+    " cursor (col) is just _after_ the newly inserted character. (unless
+    " indentkeys says otherwise, which is not the typical default)
+    " So often we want to base our decisions on the character just-inserted
+    " (i.e. col - 1). But this is tricky for sequences like #     };# where
+    " relying on the char of the ; will calculate the wrong indent level - i.e.
+    " outside the preceding }. we could scan backwards or something, but instead
+    " we do what the = command does and always use the first character on the
+    " current line - i.e. work out where the fist char on the line should be -
+    " that's the indent!
+
+    call cursor( a:lnum , 1 )
+    if s:Skip()
+        return ind
+    endif
 
     let parlnum = s:SearchParensPair()
     if parlnum > 0
@@ -179,9 +231,9 @@ function! GetJaiIndent(lnum)
         endif
     endif
 
-    " HACK? to find the indent of the current block
-    call cursor( a:lnum, col - 1 )
-    let block = searchpair( '{', '', '}', 'bW', s:skip )
+    " to find the indent of the current block
+    call cursor( a:lnum, 1 )
+    let block = searchpair( '{', '', '}', 'bW', function( 's:Skip' )  )
     if block > 0
         " Find the next non-empty line prior to the start of the block and use
         " its indent ?
@@ -200,6 +252,11 @@ function! GetJaiIndent(lnum)
         let mindent = indent( block )
         while blnum > 0
             let bl = getline( blnum )
+            call cursor( blnum, len( bl ) )
+            if s:Skip()
+                let blnum -= 1
+                continue
+            endif
             " if it's empty, or looks like the end of a statement
             if s:EndsAStatementMaybe( bl, blnum )
                 "echom 'line' blnum 'ends a statement, probably. using mind ' mindent
@@ -231,46 +288,72 @@ function! GetJaiIndent(lnum)
         endwhile
 
         " " now check for case labels!
-        let clnum = a:lnum - 1
-        while clnum > blnum
-            let l = getline( clnum )
-            if s:LooksLikeCaseLabel( l )
-                let mindent = indent( clnum )
-                break
-            elseif s:EndsAStatementMaybe( l, clnum )
-                break
-            endif
-            let clnum -= 1
-        endwhile
+        if !s:LooksLikeCaseLabel( line ) && !s:ClosesBlock( line )
+            let clnum = a:lnum - 1
+            while clnum > blnum
+                let l = getline( clnum )
+                call cursor( clnum, len( l ) )
+                if s:Skip()
+                    let clnum -= 1
+                    continue
+                endif
 
-        let ind = mindent + s:indent_value( 'default' )
+                if s:LooksLikeCaseLabel( l )
+                    let mindent = indent( clnum )
+                    break
+                elseif s:ClosesBlock( l )
+                    " Close of a an intervening block, so ignore it
+                    break
+                endif
+                let clnum -= 1
+            endwhile
+        endif
+
+        if !s:ClosesBlock( line )
+            let ind = mindent + s:indent_value( 'default' )
+        else
+            let ind = mindent
+        endif
     endif
 
-    if line =~ '^\s*}'
-        let ind -= s:indent_value( 'default' )
-        "echom "Closing, so using" ind
-    elseif line =~ '^\s*]'
-        call cursor( a:lnum, col - 1 )
-        let starting = searchpair( '[', '', ']', 'bW', s:skip )
+    " Try to determine if we should dedent. slowly, repeating a load of
+    " already-calculated stuff.
+    "
+    " Please don't kill me.
+    "
+    " This could all be a ton more efficient, and less wasteful.
+    "
+    " But for now, i just want it to work robustishly; we can make fast later..
+
+    " OK it doesn't work robustishly even now. It's a horrible mess and needs
+    " redoing with some actual thought.
+
+    " Find the column of the first 'block' closer on this line
+    "
+    " matchend returns index of char after the match, so we want matchend-1, but
+    " we also want a 1-based column, so matchend-1+1 = matchend.
+    let bracket_col = matchend( line, '^\s*]' )
+    let paren_col = matchend( line, '^\s*)' )
+
+    if bracket_col >= 0
+        call cursor( a:lnum, bracket_col )
+        let starting = searchpair( '[', '', ']', 'bW', function( 's:Skip' )  )
         if starting > 0
             "echom "Matching [ at" starting ", so using" indent(starting)
             return indent( starting )
         endif
-
-        let ind -= s:indent_value( 'default' )
-        "echom "Closing, so using" ind
-    elseif line =~ '^\s*)'
-        call cursor( a:lnum, col - 1 )
-        let starting = searchpair( '(', '', ')', 'bW', s:skip )
+    elseif paren_col >= 0
+        call cursor( a:lnum, paren_col )
+        let starting = searchpair( '(', '', ')', 'bW', function( 's:Skip' )  )
         if starting > 0
             "echom "Matching ( at" starting ", so using" indent(starting)
             return indent( starting )
         endif
-
-        let ind -= s:indent_value( 'default' )
-        "echom "Closing, so using" ind
     elseif !s:EndsAStatementMaybe( prevline, prev )
         " Maybe a hangling indent
+        " TODO! check for gnarly cases:
+        "  - #scope_file = no terminal semicolon
+        "  - #string FOO = ends with FOO (no semicolon)!
         let ind += s:indent_value( 'default' )
     endif
 
