@@ -105,23 +105,36 @@ function! s:SearchParensPair()
     call cursor(line, col)
     let parlnum = searchpair('(', '', ')', 'bW', function( 's:Skip' ) )
     let parcol = col('.')
+    let inside_other = parlnum > 0
 
     " Search for brackets
     call cursor(line, col)
     let par2lnum = searchpair('\[', '', '\]', 'bW', function( 's:Skip' ) )
     let par2col = col('.')
+    let inside_other = inside_other || par2lnum > 0
+
+    " Search for braces
+    call cursor(line, col)
+    let par3lnum = searchpair('{', '', '}', 'bW', function( 's:Skip' ) )
+    let par3col = col('.')
 
     " Get the closest match
     if par2lnum > parlnum || (par2lnum == parlnum && par2col > parcol)
         let parlnum = par2lnum
         let parcol = par2col
     endif
+    let is_brace = 0
+    if par3lnum > parlnum || (par3lnum == parlnum && par3col > parcol)
+        let parlnum = par3lnum
+        let parcol = par3col
+        let is_brace = 1
+    endif
 
     " Put the cursor on the match
     if parlnum > 0
         call cursor(parlnum, parcol)
     endif
-    return parlnum
+    return [ parlnum, is_brace, inside_other ]
 endfunction
 
 function! s:LooksLikeCaseLabel( l )
@@ -197,12 +210,13 @@ function! GetJaiIndent(lnum)
         return ind
     endif
 
-    let parlnum = s:SearchParensPair()
+    " First see if we should line up with an opening ( or [
+    let [ parlnum, is_brace, inside_other ] = s:SearchParensPair()
     if parlnum > 0
         " We're in some kind of open parent, braces, or brackets
         let parcol = col('.')
-        let closing_paren = match(getline(a:lnum), '\m^\s*[])]') != -1
-        if match(getline(parlnum), '\m[([]\s*$', parcol - 1) != -1
+        let closing_paren = match(getline(a:lnum), '\m^\s*[])}]') != -1
+        if match(getline(parlnum), '\m[([{]\s*$', parcol - 1) != -1
             " The opening line opened the dict/list/tuple, without
             " any additional stuff, e.g.:
             " x := .{
@@ -215,11 +229,14 @@ function! GetJaiIndent(lnum)
             if closing_paren
                 " we're closing it; use the indent of the opening line
                 "echom "use indent of openeing line"
-                return indent(parlnum)
+                let ind = indent(parlnum)
             else
                 " use indent of opening line + 1 sw
                 "echom "use indent of openeing line +1"
-                return indent(parlnum) + s:indent_value( 'default' )
+                let ind = indent(parlnum) + s:indent_value( 'default' )
+            endif
+            if inside_other || !is_brace
+                return ind
             endif
         else
             " The opening line opened the dict/list/tuple, with
@@ -232,11 +249,14 @@ function! GetJaiIndent(lnum)
             if closing_paren
                 " This lines it up with the bracket (strange ... -1 )
                 "echom "line up with bracket"
-                return parcol - 1
+                let ind = parcol - 1
             else
                 " lines it up with the first char of the stuff
                 "echom "line up with first cahr"
-                return matchend(getline(parlnum), '\m[([]\s*', parcol - 1)
+                let ind = matchend(getline(parlnum), '\m[([{]\s*', parcol - 1)
+            endif
+            if inside_other || !is_brace
+                return ind
             endif
         endif
     endif
